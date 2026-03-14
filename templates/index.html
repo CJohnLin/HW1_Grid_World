@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HW1 Grid Map</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            color: #333;
+        }
+
+        h1,
+        h2 {
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+        }
+
+        .controls input {
+            padding: 5px;
+            font-size: 16px;
+            width: 60px;
+        }
+
+        .controls button {
+            padding: 6px 12px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        .controls button:hover {
+            background-color: #ddd;
+        }
+
+        #setup-instruction {
+            margin: 10px 0;
+            font-weight: bold;
+        }
+
+        .grid-container {
+            display: grid;
+            gap: 2px;
+            width: max-content;
+            margin-bottom: 20px;
+        }
+
+        .cell {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #777;
+            cursor: pointer;
+            user-select: none;
+            font-size: 14px;
+        }
+
+        .cell:hover {
+            background-color: #f9f9f9;
+        }
+
+        .start {
+            background-color: #4CAF50 !important;
+            color: white;
+            font-weight: bold;
+        }
+
+        .end {
+            background-color: #F44336 !important;
+            color: white;
+            font-weight: bold;
+        }
+
+        .obstacle {
+            background-color: #9E9E9E !important;
+            color: white;
+            font-weight: bold;
+        }
+
+        /* Results styling */
+        .results-container {
+            display: flex;
+            gap: 40px;
+            margin-top: 30px;
+            flex-wrap: wrap;
+        }
+
+        .matrix-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .matrix-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .matrix-grid {
+            display: grid;
+            gap: 1px;
+            background-color: #333;
+            border: 1px solid #333;
+        }
+
+        .matrix-cell {
+            width: 50px;
+            height: 50px;
+            background-color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .matrix-cell.obs-cell {
+            background-color: #777;
+            color: white;
+        }
+
+        .matrix-cell.goal-cell {
+            background-color: #eee;
+            font-weight: bold;
+        }
+
+        .btn-primary {
+            background-color: #007BFF !important;
+            color: white;
+            border: none !important;
+            padding: 10px 20px !important;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .btn-primary:hover {
+            background-color: #0056b3 !important;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>HW1: Grid Map & Policy Evaluation</h1>
+
+    <div class="controls">
+        <label for="grid-size">Enter a number between 3 and 10: </label>
+        <input type="number" id="grid-size" min="3" max="10" value="5">
+        <button onclick="generateSquare()">Generate Square</button>
+    </div>
+
+    <h2 id="grid-title">5 x 5 Square:</h2>
+    <div id="setup-instruction">1. Click on a cell to set up the start grid as green or the end grid as red.</div>
+
+    <div id="interactive-grid" class="grid-container"></div>
+
+    <button id="eval-btn" class="btn-primary" onclick="evaluatePolicy()">Evaluate Random Policy</button>
+    <button id="optimal-btn" class="btn-success" onclick="findOptimalPolicy()">Find Optimal Policy</button>
+
+    <div id="results" class="results-container" style="display: none;">
+        <div class="matrix-wrapper">
+            <div class="matrix-title" id="val-title">Value Matrix</div>
+            <div id="value-matrix" class="matrix-grid"></div>
+        </div>
+        <div class="matrix-wrapper">
+            <div class="matrix-title" id="pol-title">Policy Matrix</div>
+            <div id="policy-matrix" class="matrix-grid"></div>
+        </div>
+    </div>
+
+    <script>
+        let gridSize = 0;
+        let cState = 0; // 0: start, 1: end, 2: obstacles
+        let obstaclesPlaced = 0;
+        let maxObstacles = 0;
+
+        let startCell = null;
+        let endCell = null;
+        let obstacles = [];
+
+        function generateSquare() {
+            const inputVal = parseInt(document.getElementById('grid-size').value);
+            if (isNaN(inputVal) || inputVal < 3 || inputVal > 10) {
+                alert("Please enter a valid number between 3 and 10.");
+                return;
+            }
+
+            gridSize = inputVal;
+            maxObstacles = gridSize - 2;
+
+            // Reset states
+            cState = 0;
+            obstaclesPlaced = 0;
+            startCell = null;
+            endCell = null;
+            obstacles = [];
+
+            document.getElementById('grid-title').innerText = `${gridSize} x ${gridSize} Square:`;
+            document.getElementById('setup-instruction').innerText = "1. Click on a cell to set up the start grid as green.";
+            document.getElementById('eval-btn').style.display = 'none';
+            document.getElementById('optimal-btn').style.display = 'none';
+            document.getElementById('results').style.display = 'none';
+
+            const gridContainer = document.getElementById('interactive-grid');
+            gridContainer.style.gridTemplateColumns = `repeat(${gridSize}, 1fr)`;
+            gridContainer.innerHTML = '';
+
+            let counter = 1;
+            for (let r = 0; r < gridSize; r++) {
+                for (let c = 0; c < gridSize; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.innerText = counter++;
+                    cell.dataset.r = r;
+                    cell.dataset.c = c;
+                    cell.onclick = () => handleCellClick(cell, r, c);
+                    gridContainer.appendChild(cell);
+                }
+            }
+        }
+
+        function handleCellClick(cell, r, c) {
+            // Prevent clicking if already assigned
+            if (cell.classList.contains('start') || cell.classList.contains('end') || cell.classList.contains('obstacle')) {
+                return;
+            }
+
+            if (cState === 0) {
+                cell.classList.add('start');
+                startCell = { r, c };
+                cState++;
+                document.getElementById('setup-instruction').innerText = "2. Click on a cell to set up the end grid as red.";
+            } else if (cState === 1) {
+                cell.classList.add('end');
+                endCell = { r, c };
+                cState++;
+                if (maxObstacles > 0) {
+                    document.getElementById('setup-instruction').innerText = `3. Click to set ${maxObstacles} obstacles (gray). (0/${maxObstacles})`;
+                } else {
+                    finishSetup();
+                }
+            } else if (cState === 2) {
+                cell.classList.add('obstacle');
+                obstacles.push({ r, c });
+                obstaclesPlaced++;
+                document.getElementById('setup-instruction').innerText = `3. Click to set ${maxObstacles} obstacles (gray). (${obstaclesPlaced}/${maxObstacles})`;
+
+                if (obstaclesPlaced >= maxObstacles) {
+                    finishSetup();
+                }
+            }
+        }
+
+        function finishSetup() {
+            cState++;
+            document.getElementById('setup-instruction').innerText = "Setup complete! Choose an evaluation method below.";
+            document.getElementById('eval-btn').style.display = 'inline-block';
+            document.getElementById('optimal-btn').style.display = 'inline-block';
+        }
+
+        function evaluatePolicy() {
+            if (!startCell || !endCell) {
+                alert("Please complete the setup first.");
+                return;
+            }
+
+            document.getElementById('val-title').innerText = "Value Matrix (Random Policy)";
+            document.getElementById('pol-title').innerText = "Policy Matrix (Random Policy)";
+
+            fetch('/evaluate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    n: gridSize,
+                    start: startCell,
+                    end: endCell,
+                    obstacles: obstacles
+                })
+            })
+                .then(res => res.json())
+                .then(data => {
+                    renderResults(data.value_matrix, data.policy_matrix);
+                })
+                .catch(err => {
+                    console.error("Error evaluating policy:", err);
+                    alert("An error occurred. Make sure the backend is running.");
+                });
+        }
+
+        function findOptimalPolicy() {
+            if (!startCell || !endCell) {
+                alert("Please complete the setup first.");
+                return;
+            }
+
+            document.getElementById('val-title').innerText = "Value Matrix (Optimal Policy)";
+            document.getElementById('pol-title').innerText = "Policy Matrix (Optimal Policy)";
+
+            fetch('/optimal_policy', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    n: gridSize,
+                    start: startCell,
+                    end: endCell,
+                    obstacles: obstacles
+                })
+            })
+                .then(res => res.json())
+                .then(data => {
+                    renderResults(data.value_matrix, data.policy_matrix);
+                })
+                .catch(err => {
+                    console.error("Error finding optimal policy:", err);
+                    alert("An error occurred. Make sure the backend is running.");
+                });
+        }
+
+        function renderResults(v_matrix, p_matrix) {
+            document.getElementById('results').style.display = 'flex';
+
+            const vGrid = document.getElementById('value-matrix');
+            const pGrid = document.getElementById('policy-matrix');
+
+            vGrid.style.gridTemplateColumns = `repeat(${gridSize}, 1fr)`;
+            pGrid.style.gridTemplateColumns = `repeat(${gridSize}, 1fr)`;
+
+            vGrid.innerHTML = '';
+            pGrid.innerHTML = '';
+
+            for (let r = 0; r < gridSize; r++) {
+                for (let c = 0; c < gridSize; c++) {
+                    const vCell = document.createElement('div');
+                    vCell.className = 'matrix-cell';
+                    vCell.innerText = Number(v_matrix[r][c]).toFixed(2);
+
+                    const pCell = document.createElement('div');
+                    pCell.className = 'matrix-cell';
+                    pCell.innerText = p_matrix[r][c];
+
+                    if (p_matrix[r][c] === 'X') {
+                        vCell.classList.add('obs-cell');
+                        pCell.classList.add('obs-cell');
+                        vCell.innerText = '';
+                        pCell.innerText = '';
+                    } else if (p_matrix[r][c] === 'G') {
+                        vCell.classList.add('goal-cell');
+                        pCell.classList.add('goal-cell');
+                        vCell.innerText = '0';
+                        pCell.innerText = '';
+                    }
+
+                    vGrid.appendChild(vCell);
+                    pGrid.appendChild(pCell);
+                }
+            }
+        }
+
+        // Initialize on load
+        window.onload = generateSquare;
+    </script>
+</body>
+
+</html>
